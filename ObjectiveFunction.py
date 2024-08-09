@@ -1,7 +1,7 @@
 """
 Created on Sun Jul 28 15:24:00 2024
 
-@author: MaximeMoutet13
+@author: MoutetMaxime
 
 
 Class for objective synthetic functions.
@@ -41,10 +41,6 @@ class ObjectiveFunction:
         if benchmark == "Ackley":
             self.f = Ackley(dim=self.dim, negate=self.negate)
 
-            self.maximum = 0
-            self.minimum = -22.8
-            self.maximizer = [0] * dim
-
             self.size = 64
             self.upper_bound = 32
             self.lower_bound = -32
@@ -57,9 +53,6 @@ class ObjectiveFunction:
 
             self.f = Hartmann(dim=self.dim, negate=self.negate)
 
-            self.maximum = 3.32237
-            self.maximizer = [0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573]
-
             self.size = 5
             self.upper_bound = 1
             self.lower_bound = 0
@@ -70,15 +63,11 @@ class ObjectiveFunction:
             self.upper_bound = np.pi
             self.lower_bound = 0
             if self.dim == 2:
-                self.maximum = 1.8013
-                self.maximizer = [2.20, 1.57]
-
                 self.size = 64
-            elif self.dim == 4:
-                self.maximum = 3.6988571
-                self.maximizer = [2.202906, 1.570796, 1.284992, 1.923058]
 
+            elif self.dim == 4:
                 self.size = 10
+
             else:
                 raise ValueError("Choose dim=2 or dim=4 for Michalewicz function.")
         else:
@@ -97,12 +86,8 @@ class ObjectiveFunction:
 
     def generate_true_response(self, input_space):
         response = np.array([self.f(torch.tensor([*x])) for x in input_space])
-
-        # Normalise response between 0 and 1
         response = (response - response.min()) / (response.max() - response.min())
-
         response = torch.from_numpy(response).float().to(self.device)
-
         return response
 
 
@@ -111,3 +96,5 @@ if __name__ == "__main__":
 
     ch2xy = obj.create_input_space()
     response = obj.generate_true_response(ch2xy)
+
+    print(len(list(response.shape)))

@@ -1,3 +1,24 @@
+"""
+Created on Sun Jul 28 15:24:00 2024
+
+@author: MoutetMaxime
+
+
+Class for Bayesian Optimization.
+
+Initialization parameters:
+    search_space: the input space of the optimization problem
+    response: the response of the optimization problem
+    device: the device to use for the optimization
+    noise_std: the noise standard deviation to add in response
+
+Methods:
+    initialize(initial_points, repetitions): Generates initial points for the optimization
+    train(): Trains the Bayesian Optimization model and returns the exploration score
+        and the optimization steps
+    get_best_point(mu, optim_steps): Returns the best point in the optimization steps
+"""
+
 import torch
 import gpytorch
 import numpy as np
@@ -39,10 +60,10 @@ class BayesianOptimizer:
         training_iter=10,
         strategy="Vanilla BO",
         begin_strat=20,
-        up=None,
-        low=None,
         follow_baseline=None,
         return_exploit=False,
+        save_file=False,
+        file_name=None,
     ):
         optim_steps = torch.zeros((repetitions, iterations, 2), device=self.device)
         inits = self.initialize(initial_points, repetitions)
@@ -60,19 +81,32 @@ class BayesianOptimizer:
         except:
             raise AssertionError("Invalid strategy")
 
+        # We separate cases where we have access to several measurements
+        if len(list(self.obj.shape)) == 2:
+            # Multiple measurement, we take the mean as ground truth and rescale it
+            print("multiple")
+            objective_func = self.obj.mean(axis=0)
+            objective_func = (objective_func - objective_func.min()) / (
+                objective_func.max() - objective_func.min()
+            )
+
+            max_obj = torch.max(objective_func)
+            bests = torch.where(objective_func == max_obj)
+
+        else:
+            objective_func = self.obj
+            max_obj = torch.max(objective_func)
+            bests = torch.where(objective_func == max_obj)
+
+        if len(bests) > 1:
+            best = bests[0]
+        else:
+            best = bests
+
         for rep in tqdm(range(repetitions)):
             deleted_queries = []
             init_queries = inits[rep]
             best_queries_list = []
-
-            max_obj = torch.max(self.obj)
-            bests = torch.where(self.obj == max_obj)
-
-            if len(bests) > 1:
-                best = bests[0]
-            else:
-                best = bests
-
             query = 0
 
             while query < iterations:  # MaxQueries:
@@ -87,16 +121,16 @@ class BayesianOptimizer:
                         optim_steps[rep, query, 0] = int(init_queries[query])
 
                     sampled_point = optim_steps[rep, query, 0]
-                    sampled_response = self.obj[int(sampled_point.item())]
 
                     # if several measurements in response
-                    if len(list(sampled_response.shape)) == 0:
-                        test_response = (
-                            sampled_response + torch.randn(1) * self.noise_std
-                        )
+                    if len(list(self.obj.shape)) == 2:
+                        test_response = self.obj[
+                            np.random.randint(self.obj.shape[0]),
+                            int(sampled_point.item()),
+                        ]
                     else:
                         test_response = (
-                            sampled_response[np.random.randint(len(sampled_response))]
+                            self.obj[int(sampled_point.item())]
                             + torch.randn(1) * self.noise_std
                         )
 
@@ -106,11 +140,9 @@ class BayesianOptimizer:
                     # done reading response
                     optim_steps[rep, query, 1] = test_response
 
-                # Apply MP-BO
+                # MP-BO
                 if query >= begin_strat and strategy == "MP-BO":
-                    deleted_query = mpbo(
-                        optim_steps, keeped_queries, rep, up=up, low=low
-                    )
+                    deleted_query = mpbo(optim_steps, keeped_queries, rep)
                     deleted_queries.append(deleted_query)
 
                 keeped_queries = np.delete(np.arange(0, query + 1, 1), deleted_queries)
@@ -171,15 +203,29 @@ class BayesianOptimizer:
                 distance_from_best[rep, query - 1] = torch.norm(
                     self.search_space[best_query] - self.search_space[best], p=2
                 )
-                exploration_score[rep, query] = 1 - self.obj[best_query] / max_obj
+                exploration_score[rep, query] = 1 - objective_func[best_query] / max_obj
                 exploitation_score[rep, query] = (
-                    1 - self.obj[optim_steps[rep, query, 0].long()] / max_obj
+                    1 - objective_func[optim_steps[rep, query, 0].long()] / max_obj
                 )
 
                 query += 1
 
-            MSEloss[rep] = torch.mean((mu - self.obj) ** 2)
+            MSEloss[rep] = torch.mean((mu - objective_func) ** 2)
 
+        if save_file:
+            np.savez(
+                f"{file_name}.npz",
+                kappa=kappa,
+                repetitions=repetitions,
+                iterations=iterations,
+                strategy=strategy,
+                begin_strat=begin_strat,
+                regret=exploration_score,
+                explt_regret=exploitation_score,
+                MSE=MSEloss,
+                distance_from_best=distance_from_best,
+                time=time_per_query,
+            )
         if return_exploit:
             return exploration_score, optim_steps, exploitation_score
         else:
@@ -215,7 +261,6 @@ if __name__ == "__main__":
     response = obj.generate_true_response(search_space)
     kappa = 3
 
-    print(search_space.shape, response.shape)
     opt = BayesianOptimizer(search_space, response)
     regret_gpbo, baseline = opt.train(
         kappa,
@@ -224,23 +269,20 @@ if __name__ == "__main__":
         iterations=150,
         training_iter=10,
         strategy="Vanilla BO",
-        begin_strat=20,
-        up=None,
-        low=None,
-        follow_baseline=None,
-        return_exploit=False,
     )
 
-    regret_mpbo, _ = opt.train(
-        kappa,
-        initial_points=1,
-        repetitions=30,
-        iterations=150,
-        training_iter=10,
-        strategy="MP-BO",
-        begin_strat=20,
-        up=None,
-        low=None,
-        follow_baseline=baseline,
-        return_exploit=False,
-    )
+    plt.plot(regret_gpbo.mean(0))
+    plt.show()
+    # regret_mpbo, _ = opt.train(
+    #     kappa,
+    #     initial_points=1,
+    #     repetitions=30,
+    #     iterations=150,
+    #     training_iter=10,
+    #     strategy="MP-BO",
+    #     begin_strat=20,
+    #     up=None,
+    #     low=None,
+    #     follow_baseline=baseline,
+    #     return_exploit=False,
+    # )
