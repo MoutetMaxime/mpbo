@@ -4,9 +4,13 @@ import matplotlib.pyplot as plt
 
 
 def UCB(mu, sigma, kappa=1):
-    acquisition = mu + kappa * torch.sqrt(sigma)
+    acquisition = mu + kappa * torch.nan_to_num(torch.sqrt(sigma))
     next_query = torch.where(
-        torch.isclose(acquisition, torch.max(acquisition), rtol=1e-2)
+        torch.isclose(
+            acquisition.reshape(len(acquisition)),
+            torch.max(acquisition.reshape(len(acquisition))),
+            rtol=1e-2,
+        )
     )
     # plt.imshow(acquisition.view(64, 64))
     # plt.show()

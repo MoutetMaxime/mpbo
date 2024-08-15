@@ -3,13 +3,11 @@ import torch
 
 
 class GP(gpytorch.models.ExactGP):
-    def __init__(self, train_x, train_y, likelihood):
+    def __init__(self, train_x, train_y, likelihood, kernel):
         super(GP, self).__init__(train_x, train_y, likelihood)
 
         self.mean_module = gpytorch.means.ZeroMean()
-        self.covar_module = gpytorch.kernels.ScaleKernel(
-            gpytorch.kernels.MaternKernel(nu=2.5)
-        )
+        self.covar_module = kernel
 
     def forward(self, x):
         mean_x = self.mean_module(x)
