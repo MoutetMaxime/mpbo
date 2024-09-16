@@ -33,7 +33,9 @@ from botorch.test_functions import Ackley, Hartmann, Michalewicz
 
 
 class ObjectiveFunction:
-    def __init__(self, benchmark, dim=2, negate=True, device=torch.device("cpu")):
+    def __init__(
+        self, benchmark, dim=2, size=None, negate=True, device=torch.device("cpu")
+    ):
         self.dim = dim
         self.negate = negate
         self.device = device
@@ -41,7 +43,10 @@ class ObjectiveFunction:
         if benchmark == "Ackley":
             self.f = Ackley(dim=self.dim, negate=self.negate)
 
-            self.size = 64
+            if size is None:
+                self.size = 64
+            else:
+                self.size = size
             self.upper_bound = 32
             self.lower_bound = -32
 
