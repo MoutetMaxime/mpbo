@@ -10,7 +10,11 @@ Initialization parameters:
     search_space: the input space of the optimization problem
     response: the response of the optimization problem
     device: the device to use for the optimization
-    noise_std: the noise standard deviation to add in response
+    noise_std: the noise standard deviation to add in response 
+    kernel: the kernel to use for the Gaussian Process (default: Matern Kernel)
+    likelihood: the likelihood to use for the Gaussian Process (default: Gaussian Likelihood)
+    isvalid: the valid points in the search space (only used for neurostimulation)
+    respMean_valid: the mean response of the valid points (only used for neurostimulation)
 
 Methods:
     initialize(initial_points, repetitions): Generates initial points for the optimization
@@ -55,6 +59,13 @@ class BayesianOptimizer:
         self.respMean_valid = respMean_valid
 
     def initialize(self, initial_points=1, repetitions=30):
+        """
+        Generates initial points for the optimization
+
+        Parameters:
+            initial_points: the number of initial points to generate
+            repetitions: the number of repetitions for optimization
+        """
         inits = np.random.randint(
             0, self.search_space.shape[0], size=(repetitions, initial_points)
         )
@@ -74,6 +85,23 @@ class BayesianOptimizer:
         save_file=False,
         file_name=None,
     ):
+        """
+        Trains the Bayesian Optimization model and returns the exploration score
+        and the optimization steps
+
+        Parameters:
+            kappa: the exploration parameter for the UCB acquisition function
+            initial_points: the number of initial points to generate
+            repetitions: the number of repetitions for optimization
+            iterations: the number of iterations for optimization
+            training_iter: the number of training iterations for the GP
+            strategy: the strategy to use for MP-BO
+            begin_strat: the iteration to start using the strategy
+            follow_baseline: the baseline to follow for the optimization
+            baseline_bests: the best queries of the baseline
+            save_file: whether to save the results in a file
+            file_name: the name of the file to save the results
+        """
         optim_steps = torch.zeros((repetitions, iterations, 2), device=self.device)
         inits = self.initialize(initial_points, repetitions)
 
@@ -153,10 +181,12 @@ class BayesianOptimizer:
                             query_in_search_space,
                         ]
                     else:
+                        added_noise = torch.randn(1) * self.noise_std
                         test_response = (
-                            self.obj[int(sampled_point.item())]
-                            + torch.randn(1) * self.noise_std
+                            self.obj[int(sampled_point.item())] + added_noise
                         )
+                        if test_response < 0:
+                            test_response = self.obj[int(sampled_point.item())]
 
                     # done reading response
                     optim_steps[rep, query, 1] = test_response
@@ -177,22 +207,24 @@ class BayesianOptimizer:
                 if strategy != "Vanilla BO":
                     assert train_x.shape[0] == min(begin_strat, query + 1)
                     assert train_y.shape[0] == min(begin_strat, query + 1)
+                    assert len(keeped_queries) == min(begin_strat, query + 1)
                 else:
                     assert train_x.shape[0] == query + 1
                     assert train_y.shape[0] == query + 1
+                    assert len(keeped_queries) == query + 1
 
                 if query == 0:
                     likelihood = self.likelihood
                     model = GP(
                         train_x,
-                        train_y / train_y.max(),
+                        train_y,
                         self.likelihood,
                         self.kernel,
                     ).to(self.device)
                 else:
                     model.set_train_data(
                         train_x,
-                        train_y / train_y.max(),
+                        train_y,
                         strict=False,
                     )
 
@@ -205,7 +237,7 @@ class BayesianOptimizer:
                     likelihood,
                     training_iter,
                     train_x,
-                    train_y / train_y.max(),
+                    train_y,
                     verbose=False,
                 )
 
@@ -267,6 +299,9 @@ class BayesianOptimizer:
 
     @staticmethod
     def get_best_point(mu, optim_steps):
+        """
+        Returns the best point in the optimization steps
+        """
         # Only test on already sampled points
         tested = torch.unique(optim_steps).long()
         mu_tested = mu[tested]
@@ -274,9 +309,8 @@ class BayesianOptimizer:
         if len(tested) == 1:
             best_query = tested
         else:
-            best_query = tested[
-                (mu_tested == torch.max(mu_tested)).reshape(len(mu_tested))
-            ]
+            best_query = tested[mu_tested == torch.max(mu_tested)]
+
             if len(best_query) > 1:
                 best_query = np.array(
                     [best_query[np.random.randint(len(best_query))].cpu()]
@@ -291,39 +325,33 @@ if __name__ == "__main__":
     from ObjectiveFunction import ObjectiveFunction
 
     # Define the search space
-    obj = ObjectiveFunction("Ackley", dim=2)
+    obj = ObjectiveFunction("Michalewicz", dim=4)
     search_space = obj.create_input_space()
     response = obj.generate_true_response(search_space)
-
     kappa = 5
-    # Define the Bayesian Optimization model
 
-    for q_star in np.arange(2, 62, 2):
-        print(f"q_star: {q_star}")
-        bo = BayesianOptimizer(search_space, response)
+    opt = BayesianOptimizer(search_space, response)
 
-        regret_gpbo, baseline = bo.train(
-            kappa=kappa,
-            initial_points=1,
-            repetitions=30,
-            iterations=150,
-            strategy="Vanilla BO",
-        )
+    regret_worst, _ = opt.train(
+        kappa,
+        iterations=150,
+        repetitions=30,
+        initial_points=1,
+        strategy="MP-BO",
+        begin_strat=20,
+    )
 
-        wo = BayesianOptimizer(search_space, response)
+    baseline, baseline_bests = _
+    regret_bo, _ = opt.train(
+        kappa,
+        iterations=150,
+        repetitions=30,
+        initial_points=20,
+        strategy="Worst",
+        follow_baseline=baseline,
+    )
 
-        regret_mpbo, _ = wo.train(
-            kappa=kappa,
-            initial_points=1,
-            repetitions=30,
-            iterations=150,
-            strategy="MP-BO",
-            begin_strat=q_star,
-        )
-
-        plt.plot(regret_mpbo.mean(axis=0), label="MP-BO")
-        plt.plot(regret_gpbo.mean(axis=0), label="Vanilla BO")
-        plt.vlines(q_star, 0, 1, color="k", linestyles="--")
-        plt.ylim(0, 1)
-        plt.legend()
-        plt.show()
+    plt.vlines(20, 0, 1, color="red")
+    plt.plot(regret_worst.mean(dim=0).numpy())
+    plt.plot(regret_bo.mean(dim=0).numpy())
+    plt.show()

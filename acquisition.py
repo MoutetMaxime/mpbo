@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 
 
 def UCB(mu, sigma, kappa=1):
+    """
+    Upper Confidence Bound acquisition function
+    """
     acquisition = mu + kappa * torch.nan_to_num(torch.sqrt(sigma))
     next_query = torch.where(
         torch.isclose(

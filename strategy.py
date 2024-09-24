@@ -4,10 +4,6 @@ from scipy.stats import gmean
 
 
 def mpbo(optim_steps, keeped_queries, epoch, strategy):
-    """
-    Random strategy
-    """
-
     if strategy == "MP-BO":
         index_to_del = random_removing(optim_steps, keeped_queries, epoch)
     elif strategy == "FiFo":
@@ -59,6 +55,7 @@ def geometric_mean_removing(optim_steps, keeped_queries, epoch):
 
 def worst_removing(optim_steps, keeped_queries, epoch):
     # Find the query with the worst response
-    worst_query = np.argmin(optim_steps[epoch, keeped_queries, 1])
+    sorted_queries = np.argsort(optim_steps[epoch, keeped_queries, 1].cpu().numpy())
+    possible_del = keeped_queries[sorted_queries[:-1]]
 
-    return keeped_queries[worst_query.item()]
+    return possible_del[0]
