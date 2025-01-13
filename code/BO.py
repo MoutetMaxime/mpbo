@@ -23,17 +23,16 @@ Methods:
     get_best_point(mu, optim_steps): Returns the best point in the optimization steps
 """
 
-import torch
-import gpytorch
-import numpy as np
-import matplotlib.pyplot as plt
-
-from tqdm import tqdm
+from code.acquisition import UCB
+from code.model import GP, optimize
+from code.strategy import mpbo
 from time import time
 
-from model import GP, optimize
-from acquisition import UCB
-from strategy import mpbo
+import gpytorch
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from tqdm import tqdm
 
 
 class BayesianOptimizer:
@@ -322,7 +321,7 @@ class BayesianOptimizer:
 
 
 if __name__ == "__main__":
-    from ObjectiveFunction import ObjectiveFunction
+    from code.ObjectiveFunction import ObjectiveFunction
 
     # Define the search space
     obj = ObjectiveFunction("Michalewicz", dim=4)
